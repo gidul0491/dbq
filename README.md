@@ -4,7 +4,7 @@ Claude Code가 DB를 조회 전용으로 직접 조회하게 해 주는 명령�
 
 ## 설치
 
-Node 22 이상이 필요하다. `dbq`는 실행한 위치의 PATH에 잡힌 node로 돌기 때문에, 프로젝트별로 nvm 버전을 바꿔 쓴다면 기본 버전(`nvm alias default`)을 22 이상으로 둔다.
+Node 22 이상이 필요하다. `install.sh`를 실행할 때의 node로 고정되므로 프로젝트의 `.nvmrc`와 상관없이 동작한다. 그 node 버전을 지우거나 바꾸면 `install.sh`를 다시 실행한다.
 
 ```bash
 git clone https://github.com/gidul0491/dbq.git ~/git/dbq
@@ -24,19 +24,19 @@ git clone https://github.com/gidul0491/dbq.git ~/git/dbq
 ## 사용
 
 ```bash
-dbq                                      # 별칭 목록 (현재 저장소를 쓰는 별칭에 *)
+dbq                                      # 별칭 목록 (현재 프로젝트를 쓰는 별칭에 *)
 dbq <별칭> "SELECT ..."                  # 조회
-dbq set <별칭> projects +<저장소>        # 이 별칭을 쓰는 저장소 추가 (-<저장소>는 제거)
+dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가
 ```
 
-- `projects`는 git 저장소 이름(`origin` 주소의 마지막 부분)이다.
+- `projects`에는 프로젝트 이름을 넣는다. git `origin` 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름 순으로 정해지고, `dbq` 첫 줄에 나온다.
 - `SELECT`, `SHOW`, `DESC`, `EXPLAIN`, `WITH`로 시작하는 한 문장만 실행된다. 쿼리는 읽기 전용 트랜잭션에서 실행하고 항상 롤백한다. MSSQL은 읽기 전용 트랜잭션이 없어 롤백만 한다.
 - 가능하면 읽기 전용 DB 계정을 쓴다.
 
 ## 업데이트
 
 ```bash
-cd ~/git/dbq && git pull && npm ci
+cd ~/git/dbq && git pull && ./install.sh
 ```

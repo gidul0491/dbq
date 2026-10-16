@@ -8,20 +8,20 @@ description: DB 데이터를 조회해야 할 때(건수 확인, 데이터 확�
 DB 조회가 필요하면 사용자에게 쿼리를 실행해 달라고 하지 말고 직접 실행한다.
 
 ```bash
-dbq                                      # 별칭 목록 (현재 저장소를 쓰는 별칭에 *)
+dbq                                      # 별칭 목록 (현재 프로젝트를 쓰는 별칭에 *)
 dbq <별칭> "SELECT ..."                  # 조회
-dbq set <별칭> projects +<저장소>        # 이 별칭을 쓰는 저장소 추가 (-<저장소>는 제거)
+dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가 (접속정보는 빈칸)
 ```
 
 ## 별칭 고르기
-- 작업 중인 저장소 폴더에서 `dbq`를 실행해 `*` 붙은 별칭을 쓴다. `프로젝트` 칸은 git 저장소 이름(`origin` 주소의 마지막 부분, `.git` 제외)이다.
+- 작업 중인 프로젝트 폴더에서 `dbq`를 실행해 `*` 붙은 별칭을 쓴다. 프로젝트 이름은 첫 줄 `현재 프로젝트:`에 나온다(git `origin` 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름 순).
 - `*`가 없거나 여러 개면 추측하지 말고 사용자에게 묻는다.
 - 테이블 위치는 `information_schema.tables`로 찾는다. 한 서버에 스키마가 여러 개면 `` `스키마`.테이블 ``로 명시한다.
 
 ## 설정을 직접 고치는 경우
-- 사용자가 "여기는 ○○ DB 쓰는 거야"라고 하면 `dbq`에 나온 현재 저장소 이름으로 `dbq set <별칭> projects +<저장소>`를 실행한다. projects 전체를 덮어쓰는 `,` 형식은 쓰지 않는다.
+- 사용자가 "여기는 ○○ DB 쓰는 거야"라고 하면 `dbq` 첫 줄의 현재 프로젝트 이름으로 `dbq set <별칭> projects +<프로젝트>`를 실행한다. projects 전체를 덮어쓰는 `,` 형식은 쓰지 않는다.
 - 사용자가 DB 용도를 설명하면 `desc`를 채운다. 사용자 말이나 코드 같은 근거 없이 추측으로 채우지 않는다.
 - 사용자가 새 DB를 추가하라고 하면 `dbq new`로 양식만 만들고, 사용자에게 `dbq.json`에서 해당 별칭의 host·user·password를 채워 달라고 한다. 별칭 이름은 기존 별칭처럼 `용도-환경`(예: `db-myservice-prod`) 형태로 짓되, 애매하면 묻는다.
 - host·port·user·password는 사용자만 수정한다. 이 값을 대화로 받아도 직접 넣지 말고 사용자가 파일에 넣게 한다.
@@ -41,7 +41,7 @@ dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추
 - 접속 오류(Access denied, ETIMEDOUT, 접속정보 미입력 등)는 추측으로 고치지 말고 그대로 사용자에게 알린다.
 
 ## 파일 위치
-dbq 저장소 폴더(보통 `~/git/dbq`) 하나에 전부 있다. `~/.local/bin/dbq`와 `~/.claude/skills/dbq`는 이 폴더를 가리키는 링크다.
+dbq 저장소 폴더(보통 `~/git/dbq`) 하나에 전부 있다. `~/.local/bin/dbq`는 이 폴더의 스크립트를 실행하는 런처, `~/.claude/skills/dbq`는 `skill` 폴더 링크다.
 - `dbq`: 스크립트
 - `dbq.json`: 접속정보 (git 제외, 각자 입력)
 - `skill/SKILL.md`: 이 스킬

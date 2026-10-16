@@ -69,14 +69,19 @@ if (isCmd) {
   process.exit(0);
 }
 
-// 인자 없이 실행하면 별칭 목록 (비밀번호 제외), 현재 git 저장소를 쓰는 별칭에 * 표시
+// 인자 없이 실행하면 별칭 목록 (비밀번호 제외), 현재 프로젝트를 쓰는 별칭에 * 표시
+// 프로젝트 이름: git origin 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름
 if (!alias) {
-  let repo = '';
-  try {
-    const url = require('child_process').execSync('git remote get-url origin', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    repo = url.replace(/\.git$/, '').split(/[/:]/).pop();
-  } catch (e) {}
-  console.log(`현재 저장소: ${repo || '없음'}`);
+  const git = (cmd) => {
+    try {
+      return require('child_process').execSync(`git ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch (e) {
+      return '';
+    }
+  };
+  const url = git('remote get-url origin');
+  const repo = url ? url.replace(/\.git$/, '').split(/[/:]/).pop() : path.basename(git('rev-parse --show-toplevel') || process.cwd());
+  console.log(`현재 프로젝트: ${repo}`);
   console.log(['', '별칭', '종류', 'host', 'database', '프로젝트', '설명'].join('\t'));
   for (const [k, c] of Object.entries(all)) {
     const mark = repo && (c.projects || []).includes(repo) ? '*' : '';

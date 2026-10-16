@@ -12,7 +12,10 @@ fi
 cd "$DIR" && npm ci --silent
 
 mkdir -p ~/.local/bin ~/.claude/skills
-ln -sfn "$DIR/dbq" ~/.local/bin/dbq
+# 프로젝트마다 .nvmrc로 node가 바뀌어도 설치할 때의 node로 실행되게 고정
+rm -f ~/.local/bin/dbq
+printf '#!/bin/sh\nexec "%s" "%s/dbq" "$@"\n' "$(command -v node)" "$DIR" > ~/.local/bin/dbq
+chmod +x ~/.local/bin/dbq
 ln -sfn "$DIR/skill" ~/.claude/skills/dbq
 
 if [ ! -f "$DIR/dbq.json" ]; then
