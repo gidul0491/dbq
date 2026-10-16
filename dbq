@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+// 조회 전용 DB 쿼리: dbq <별칭> "<SQL>"
+// 접속정보·드라이버는 이 스크립트가 있는 폴더 기준 (dbq.json, node_modules)
+const fs = require('fs');
+const path = require('path');
+
+const DIR = path.dirname(fs.realpathSync(__filename));
+const LIB = path.join(DIR, 'node_modules');
+const MAX_ROWS = 500;
+
+const fail = (msg) => { console.error(msg); process.exit(1); };
+
+const FILE = path.join(DIR, 'dbq.json');
+const EDITABLE = ['type', 'database', 'projects', 'desc'];
+const PORTS = { mysql: 3306, postgres: 5432, mssql: 1433 }; // 등록 가능한 종류
+const SUPPORTED = ['mysql', 'postgres', 'mssql']; // 조회 가능한 종류
+const [alias, raw] = process.argv.slice(2);
+const isCmd = alias === 'set' || alias === 'new';
+if (alias && !isCmd && !raw) fail('사용법: dbq <별칭> "<SQL>"');
+
+// 한 문장, 조회 키워드로 시작하는 것만 허용
+const sql = (raw || '').trim().replace(/;\s*$/, '');
+if (alias && !isCmd) {
+  if (sql.includes(';')) fail('한 번에 한 문장만 실행할 수 있습니다.');
+  const head = sql.replace(/^(\s+|\/\*[\s\S]*?\*\/|--[^\n]*\n?)*/, '');
+  if (!/^(select|show|desc|describe|explain|with)\b/i.test(head)) fail('조회 쿼리만 실행할 수 있습니다.');
+  if (/\binto\s+(outfile|dumpfile)\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
+}
+
+let all;
+try {
+  all = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+} catch (e) {
+  fail(`dbq.json 오류: ${e.message}`);
+}
+
+// dbq set <별칭> <항목> <값>: 접속정보 외 항목만 수정 (빈 값이면 삭제, projects는 쉼표 구분 / +저장소 추가 / -저장소 제거)
+// dbq new <별칭> <종류> [database] [설명]: 접속정보가 빈 양식 추가
+if (isCmd) {
+  const [cmd, name, a, b, c] = process.argv.slice(2);
+  if (cmd === 'new') {
+    if (!name || !a) fail(`사용법: dbq new <별칭> <${Object.keys(PORTS).join('|')}> [database] [설명]`);
+    if (all[name]) fail(`이미 있는 별칭: ${name}`);
+    if (!PORTS[a]) fail(`알 수 없는 종류: ${a} (가능: ${Object.keys(PORTS).join(', ')})`);
+    all[name] = { type: a, host: '', port: PORTS[a], user: '', password: '', database: b || '' };
+    if (c) all[name].desc = c;
+  } else {
+    if (!name || !a || b === undefined) fail(`사용법: dbq set <별칭> <${EDITABLE.join('|')}> <값>`);
+    if (!all[name]) fail(`별칭 없음: ${name} (있는 별칭: ${Object.keys(all).join(', ')})`);
+    if (!EDITABLE.includes(a)) fail(`수정할 수 없는 항목: ${a} (가능: ${EDITABLE.join(', ')})`);
+    if (a === 'type' && !PORTS[b]) fail(`알 수 없는 종류: ${b} (가능: ${Object.keys(PORTS).join(', ')})`);
+    const cur = all[name].projects || [];
+    let v = b;
+    if (a === 'projects') {
+      if (/^[+-]/.test(b)) {
+        const repo = b.slice(1).trim();
+        v = b[0] === '+' ? [...new Set([...cur, repo])] : cur.filter((p) => p !== repo);
+      } else {
+        v = b.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    if (v === '' || (Array.isArray(v) && !v.length)) delete all[name][a];
+    else all[name][a] = v;
+  }
+  fs.writeFileSync(FILE, JSON.stringify(all, null, 2) + '\n');
+  const { host, port, user, password, ...shown } = all[name];
+  console.log(`${name} = ${JSON.stringify(shown)}${host && user && password ? '' : ' (접속정보 미입력)'}`);
+  process.exit(0);
+}
+
+// 인자 없이 실행하면 별칭 목록 (비밀번호 제외), 현재 git 저장소를 쓰는 별칭에 * 표시
+if (!alias) {
+  let repo = '';
+  try {
+    const url = require('child_process').execSync('git remote get-url origin', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    repo = url.replace(/\.git$/, '').split(/[/:]/).pop();
+  } catch (e) {}
+  console.log(`현재 저장소: ${repo || '없음'}`);
+  console.log(['', '별칭', '종류', 'host', 'database', '프로젝트', '설명'].join('\t'));
+  for (const [k, c] of Object.entries(all)) {
+    const mark = repo && (c.projects || []).includes(repo) ? '*' : '';
+    console.log([mark, k, c.type || 'mysql', c.host, c.database, (c.projects || []).join(','), c.desc].map((v) => v ?? '').join('\t'));
+  }
+  process.exit(0);
+}
+if (!all[alias]) fail(`별칭 없음: ${alias} (있는 별칭: ${Object.keys(all).join(', ')})`);
+const { type = 'mysql', desc, projects, ...conn } = all[alias];
+if (!SUPPORTED.includes(type)) fail(`지원하지 않는 종류: ${type}`);
+// mssql은 SELECT ... INTO로 테이블이 생기고, 읽기 전용 트랜잭션이 없어 롤백에만 의존하므로 INTO 자체를 막는다
+if (type === 'mssql' && /\binto\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
+if (!conn.host || !conn.user) fail(`접속정보 미입력: ${alias} (${FILE})`);
+
+const cell = (v) => {
+  if (v === null || v === undefined) return 'NULL';
+  if (Buffer.isBuffer(v)) return `<${v.length} bytes>`;
+  if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.000Z$|Z$/, '');
+  if (typeof v === 'object') v = JSON.stringify(v);
+  return String(v).replace(/\t/g, ' ').replace(/\r?\n/g, '\\n');
+};
+
+const print = (cols, rows) => {
+  console.log(cols.join('\t'));
+  for (const r of rows.slice(0, MAX_ROWS)) console.log(cols.map((c) => cell(r[c])).join('\t'));
+  console.log(rows.length > MAX_ROWS ? `(${rows.length}행 중 ${MAX_ROWS}행 표시)` : `(${rows.length}행)`);
+};
+
+async function runMysql() {
+  const mysql = require(path.join(LIB, 'mysql2/promise'));
+  const db = await mysql.createConnection({ ...conn, multipleStatements: false, dateStrings: true });
+  try {
+    await db.query('START TRANSACTION READ ONLY');
+    const [rows, fields] = await db.query(sql);
+    await db.query('ROLLBACK');
+    print((fields || []).map((f) => f.name), Array.isArray(rows) ? rows : []);
+  } finally {
+    await db.end();
+  }
+}
+
+async function runPostgres() {
+  const pg = require(path.join(LIB, 'pg'));
+  for (const oid of [1082, 1114, 1184]) pg.types.setTypeParser(oid, (v) => v);
+  const db = new pg.Client(conn);
+  await db.connect();
+  try {
+    await db.query('BEGIN READ ONLY');
+    const r = await db.query(sql);
+    await db.query('ROLLBACK');
+    print(r.fields.map((f) => f.name), r.rows);
+  } finally {
+    await db.end();
+  }
+}
+
+async function runMssql() {
+  const mssql = require(path.join(LIB, 'mssql'));
+  const { host, port, options, ...rest } = conn;
+  const db = await mssql.connect({
+    ...rest,
+    server: host,
+    port: Number(port) || 1433,
+    options: { encrypt: false, trustServerCertificate: true, ...options },
+  });
+  try {
+    const tx = new mssql.Transaction(db);
+    await tx.begin();
+    try {
+      const r = await new mssql.Request(tx).query(sql);
+      const rows = r.recordset || [];
+      print(Object.keys(rows.columns || rows[0] || {}), rows);
+    } finally {
+      await tx.rollback();
+    }
+  } finally {
+    await db.close();
+  }
+}
+
+const RUN = { mysql: runMysql, postgres: runPostgres, mssql: runMssql };
+RUN[type]().catch((e) => fail(e.message || e.code || String(e)));

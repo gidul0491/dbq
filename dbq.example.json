@@ -1,0 +1,12 @@
+{
+  "db-example-prod": {
+    "type": "mysql",
+    "host": "",
+    "port": 3306,
+    "user": "",
+    "password": "",
+    "database": "",
+    "projects": [],
+    "desc": ""
+  }
+}

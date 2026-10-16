@@ -1,0 +1,12 @@
+{
+  "name": "dbq",
+  "version": "1.0.0",
+  "private": true,
+  "description": "조회 전용 DB 쿼리 명령어 (MySQL, Postgres, MSSQL)",
+  "bin": { "dbq": "dbq" },
+  "dependencies": {
+    "mssql": "^12.7.9",
+    "mysql2": "^3.24.5",
+    "pg": "^8.23.1"
+  }
+}
