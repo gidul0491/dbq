@@ -4,6 +4,8 @@ Claude Code가 DB를 조회 전용으로 직접 조회하게 해 주는 명령�
 
 ## 설치
 
+Node 22 이상이 필요하다. `dbq`는 실행한 위치의 PATH에 잡힌 node로 돌기 때문에, 프로젝트별로 nvm 버전을 바꿔 쓴다면 기본 버전(`nvm alias default`)을 22 이상으로 둔다.
+
 ```bash
 git clone https://github.com/gidul0491/dbq.git ~/git/dbq
 ~/git/dbq/install.sh

@@ -3,6 +3,12 @@
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  echo "Node 22 이상이 필요합니다. (현재: $(node -v 2>/dev/null || echo 없음))"
+  exit 1
+fi
+
 cd "$DIR" && npm ci --silent
 
 mkdir -p ~/.local/bin ~/.claude/skills

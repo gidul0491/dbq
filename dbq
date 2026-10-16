@@ -9,6 +9,7 @@ const LIB = path.join(DIR, 'node_modules');
 const MAX_ROWS = 500;
 
 const fail = (msg) => { console.error(msg); process.exit(1); };
+if (Number(process.versions.node.split('.')[0]) < 22) fail(`Node 22 이상이 필요합니다. (현재: ${process.version})`);
 
 const FILE = path.join(DIR, 'dbq.json');
 const EDITABLE = ['type', 'database', 'projects', 'desc'];
@@ -79,7 +80,7 @@ if (!alias) {
   console.log(['', '별칭', '종류', 'host', 'database', '프로젝트', '설명'].join('\t'));
   for (const [k, c] of Object.entries(all)) {
     const mark = repo && (c.projects || []).includes(repo) ? '*' : '';
-    console.log([mark, k, c.type || 'mysql', c.host, c.database, (c.projects || []).join(','), c.desc].map((v) => v ?? '').join('\t'));
+    console.log([mark, k, c.type || 'mysql', c.host, c.database, (c.projects || []).join(','), c.desc].map((v) => (v == null ? '' : v)).join('\t'));
   }
   process.exit(0);
 }
