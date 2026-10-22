@@ -29,6 +29,8 @@ dbq <별칭> "SELECT ..."                  # 조회
 dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가
+dbq version                              # 설치된 버전과 새 버전 확인
+dbq update                               # 새 버전으로 업데이트
 ```
 
 - `projects`에는 프로젝트 이름을 넣는다. git `origin` 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름 순으로 정해지고, `dbq` 첫 줄에 나온다.
@@ -38,5 +40,8 @@ dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추
 ## 업데이트
 
 ```bash
-cd ~/git/dbq && git pull && ./install.sh
+dbq version
+dbq update
 ```
+
+`update`는 새 커밋을 받은 뒤 지금 쓰는 node로 `install.sh`를 다시 실행한다. 로컬에서 고친 파일이나 올리지 않은 커밋이 있으면 멈춘다.
