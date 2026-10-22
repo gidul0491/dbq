@@ -26,6 +26,7 @@ git clone https://github.com/gidul0491/dbq.git ~/git/dbq
 ```bash
 dbq                                      # 별칭 목록 (현재 프로젝트를 쓰는 별칭에 *)
 dbq <별칭> "SELECT ..."                  # 조회
+dbq <별칭> "SELECT ..." --out <파일>     # 결과를 화면 대신 파일(TSV)로 저장, 행 수 제한 없음
 dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가
@@ -34,7 +35,8 @@ dbq update                               # 새 버전으로 업데이트
 ```
 
 - `projects`에는 프로젝트 이름을 넣는다. git `origin` 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름 순으로 정해지고, `dbq` 첫 줄에 나온다.
-- `SELECT`, `SHOW`, `DESC`, `EXPLAIN`, `WITH`로 시작하는 한 문장만 실행된다. 쿼리는 읽기 전용 트랜잭션에서 실행하고 항상 롤백한다. MSSQL은 읽기 전용 트랜잭션이 없어 롤백만 한다.
+- `SELECT`, `SHOW`, `DESC`, `EXPLAIN`, `WITH`로 시작하는 한 문장만 실행된다. 쿼리는 읽기 전용 트랜잭션에서 실행하고 항상 롤백한다. MSSQL은 읽기 전용 트랜잭션이 없어 롤백만 하므로, 실행 전에 `INTO`, `EXEC`·`sp_executesql`·`xp_cmdshell`, `OPENQUERY`·`OPENROWSET`·`OPENDATASOURCE`, `WITH` 안의 쓰기 문장을 거부한다(문자열·주석·`[이름]` 안의 단어는 보지 않는다).
+- `--out`은 결과를 본인만 읽을 수 있는 파일로 저장하고 행 수만 출력한다. 개인정보를 뽑을 때 대화에 값을 남기지 않기 위해 쓴다.
 - 가능하면 읽기 전용 DB 계정을 쓴다.
 
 ## 업데이트

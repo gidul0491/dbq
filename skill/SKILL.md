@@ -10,6 +10,7 @@ DB 조회가 필요하면 사용자에게 쿼리를 실행해 달라고 하지 �
 ```bash
 dbq                                      # 별칭 목록 (현재 프로젝트를 쓰는 별칭에 *)
 dbq <별칭> "SELECT ..."                  # 조회
+dbq <별칭> "SELECT ..." --out <파일>     # 결과를 화면 대신 파일(TSV)로 저장, 행 수 제한 없음
 dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가 (접속정보는 빈칸)
@@ -38,9 +39,10 @@ dbq update                               # 새 버전으로 업데이트
 - `dbq ...`는 단독 명령으로 실행한다. 파이프·`&&`·`;`로 다른 명령과 묶으면 허용 규칙에 걸리지 않아 막힌다.
 - 허용: `SELECT`, `SHOW`, `DESC`, `EXPLAIN`, `WITH`로 시작하는 한 문장. 나머지는 거부되고, 읽기 전용 트랜잭션이라 DB도 쓰기를 거부한다.
 - 결과는 탭 구분, 최대 500행. 운영 DB에서는 큰 테이블 전체 조회 대신 `COUNT(*)`, `LIMIT`, 인덱스 조건을 쓴다.
+- 개인정보(이름·연락처·주민번호 등)를 백업·엑셀용으로 뽑을 때는 `--out <파일>`로 파일에만 저장하고 값을 화면에 띄우지 않는다. 확인은 행 수와 형식 검사로만 한다. 파일은 본인만 읽을 수 있는 권한으로 만들어진다.
 - 프로시저 내용은 `SHOW CREATE PROCEDURE <이름>`(mysql), `SELECT OBJECT_DEFINITION(OBJECT_ID('<이름>'))`(mssql)로 본다. 프로시저를 `CALL`/`EXEC`하지 않는다.
 - 조회 가능한 종류는 mysql, postgres, mssql.
-- mssql: `LIMIT` 대신 `SELECT TOP n`. `SHOW`/`DESC`가 없으니 `sys.objects`, `INFORMATION_SCHEMA.COLUMNS`로 구조를 본다. `INTO`가 들어간 쿼리와 `EXEC`(`sp_helptext` 포함)는 거부된다.
+- mssql: `LIMIT` 대신 `SELECT TOP n`. `SHOW`/`DESC`가 없으니 `sys.objects`, `INFORMATION_SCHEMA.COLUMNS`로 구조를 본다. `INTO`가 들어간 쿼리, `EXEC`·`sp_executesql`·`xp_cmdshell`(`sp_helptext` 포함), `OPENQUERY`·`OPENROWSET`·`OPENDATASOURCE`, `WITH` 안의 INSERT·UPDATE·DELETE·MERGE 등은 거부된다.
 - mssql은 읽기 전용 트랜잭션이 없어 롤백으로만 되돌린다. 쓰기처럼 보이는 쿼리는 시도하지 않는다.
 
 ## 하지 않는 것
