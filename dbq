@@ -11,6 +11,40 @@ const MAX_ROWS = 500;
 const fail = (msg) => { console.error(msg); process.exit(1); };
 if (Number(process.versions.node.split('.')[0]) < 22) fail(`Node 22 이상이 필요합니다. (현재: ${process.version})`);
 
+// dbq version: 설치된 버전과 새 버전 확인 / dbq update: 새 버전으로 업데이트 (dbq 저장소의 git 기준)
+if (process.argv[2] === 'version' || process.argv[2] === 'update') {
+  const { spawnSync } = require('child_process');
+  const git = (...args) => {
+    const r = spawnSync('git', ['-C', DIR, ...args], { encoding: 'utf8' });
+    return { ok: r.status === 0, out: (r.stdout || '').trimEnd(), err: (r.stderr || '').trim() };
+  };
+  const f = git('fetch', '-q', 'origin');
+  if (!f.ok) fail(`새 버전을 확인할 수 없습니다: ${f.err}`);
+  const head = () => git('log', '-1', '--format=%h %cd %s', '--date=format:%Y-%m-%d').out;
+  const cur = head();
+  const [ahead, behind] = git('rev-list', '--left-right', '--count', 'HEAD...@{u}').out.split(/\s+/).map(Number);
+  const dirty = git('status', '--porcelain', '--untracked-files=no').out;
+  const news = behind ? git('log', '--format=  %h %s', 'HEAD..@{u}').out : '';
+  if (process.argv[2] === 'version') {
+    console.log(`설치된 버전: ${cur}`);
+    console.log(behind ? `새 버전 ${behind}개 (dbq update로 업데이트):\n${news}` : '최신 버전입니다.');
+    if (ahead) console.log(`올리지 않은 로컬 커밋 ${ahead}개`);
+    if (dirty) console.log(`로컬에서 고친 파일:\n${dirty}`);
+    process.exit(0);
+  }
+  if (!behind) { console.log(`최신 버전입니다: ${cur}`); process.exit(0); }
+  if (dirty) fail(`로컬에서 고친 파일이 있어 업데이트를 멈춥니다:\n${dirty}`);
+  if (ahead) fail(`올리지 않은 로컬 커밋 ${ahead}개가 있어 업데이트를 멈춥니다.`);
+  const m = git('merge', '--ff-only', '@{u}');
+  if (!m.ok) fail(`업데이트 실패: ${m.err}`);
+  // 지금 실행 중인 node로 다시 설치해 런처의 node가 바뀌지 않게 한다
+  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}` };
+  const i = spawnSync(path.join(DIR, 'install.sh'), { cwd: DIR, env, encoding: 'utf8' });
+  if (i.status !== 0) fail(`설치 실패:\n${i.stdout}${i.stderr}`);
+  console.log(`업데이트 완료: ${cur} → ${head()}\n${news}`);
+  process.exit(0);
+}
+
 const FILE = path.join(DIR, 'dbq.json');
 const EDITABLE = ['type', 'database', 'projects', 'desc'];
 const PORTS = { mysql: 3306, postgres: 5432, mssql: 1433 }; // 등록 가능한 종류
@@ -96,9 +130,16 @@ if (!SUPPORTED.includes(type)) fail(`지원하지 않는 종류: ${type}`);
 if (type === 'mssql' && /\binto\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
 if (!conn.host || !conn.user) fail(`접속정보 미입력: ${alias} (${FILE})`);
 
+// 글자 칼럼이 바이트로 오는 DB(문자셋이 binary로 보고되는 경우)는 UTF-8 글자면 글자로, 아니면 크기만 보인다
+const utf8 = new TextDecoder('utf-8', { fatal: true });
 const cell = (v) => {
   if (v === null || v === undefined) return 'NULL';
-  if (Buffer.isBuffer(v)) return `<${v.length} bytes>`;
+  if (Buffer.isBuffer(v)) {
+    let s;
+    try { s = utf8.decode(v); } catch (e) { return `<${v.length} bytes>`; }
+    if (/[\x00-\x08\x0e-\x1f]/.test(s)) return `<${v.length} bytes>`;
+    v = s;
+  }
   if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.000Z$|Z$/, '');
   if (typeof v === 'object') v = JSON.stringify(v);
   return String(v).replace(/\t/g, ' ').replace(/\r?\n/g, '\\n');
