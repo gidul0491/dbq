@@ -21,6 +21,24 @@ git clone https://github.com/gidul0491/dbq.git ~/git/dbq
 
 `allow`는 Claude가 묻지 않고 조회하게 하고, `deny`는 Claude가 접속정보 파일을 열지 못하게 한다. `~/git/dbq`가 아닌 곳에 받았다면 경로를 바꾼다.
 
+### Windows
+
+[Git for Windows](https://git-scm.com/download/win)의 Git Bash에서 `install.sh`를 실행한다. nvm-windows를 쓰면 `nvm use 22` 후에 실행한다.
+
+```bash
+git clone https://github.com/gidul0491/dbq.git /c/git/dbq
+/c/git/dbq/install.sh
+```
+
+- `~/.local/bin`에 Git Bash용 `dbq`와 PowerShell·cmd용 `dbq.cmd`가 생긴다. PATH에 없으면 설치가 안내하는 PowerShell 명령으로 사용자 PATH에 추가하고 터미널·VS Code를 다시 연다.
+- `~/.claude/skills/dbq`는 junction으로 링크된다.
+- `dbq.json`과 `--out` 파일은 상속 권한을 끊고 본인만 접근하게 설정된다.
+- `settings.json`의 경로는 `/c/...` 형태로 쓰고, 절대 경로는 `//`로 시작한다.
+
+```json
+"deny": [ "Read(//c/git/dbq/dbq.json)", "Edit(//c/git/dbq/dbq.json)" ]
+```
+
 ## 사용
 
 ```bash

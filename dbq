@@ -39,7 +39,14 @@ if (process.argv[2] === 'version' || process.argv[2] === 'update') {
   if (!m.ok) fail(`업데이트 실패: ${m.err}`);
   // 지금 실행 중인 node로 다시 설치해 런처의 node가 바뀌지 않게 한다
   const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}` };
-  const i = spawnSync(path.join(DIR, 'install.sh'), { cwd: DIR, env, encoding: 'utf8' });
+  // Windows는 .sh를 바로 실행할 수 없어 Git Bash로 실행한다 (PATH의 bash는 WSL일 수 있어 git 설치 폴더의 것을 쓴다)
+  let cmd = [path.join(DIR, 'install.sh')];
+  if (process.platform === 'win32') {
+    const bash = path.resolve(git('--exec-path').out, '../../../bin/bash.exe');
+    if (!fs.existsSync(bash)) fail(`Git Bash를 찾을 수 없습니다: ${bash}`);
+    cmd = [bash, ...cmd];
+  }
+  const i = spawnSync(cmd[0], cmd.slice(1), { cwd: DIR, env, encoding: 'utf8' });
   if (i.status !== 0) fail(`설치 실패:\n${i.stdout}${i.stderr}`);
   console.log(`업데이트 완료: ${cur} → ${head()}\n${news}`);
   process.exit(0);
@@ -160,7 +167,15 @@ const cell = (v) => {
 const print = (cols, rows) => {
   if (outFile) {
     const lines = [cols.join('\t'), ...rows.map((r) => cols.map((c) => cell(r[c])).join('\t'))];
-    fs.writeFileSync(outFile, lines.join('\n') + '\n', { mode: 0o600 });
+    // Windows는 mode가 무시되므로 빈 파일을 만들어 본인만 읽게 한 뒤에 값을 쓴다
+    fs.writeFileSync(outFile, '');
+    if (process.platform !== 'win32') fs.chmodSync(outFile, 0o600);
+    else {
+      const { USERDOMAIN, USERNAME } = process.env;
+      const r = require('child_process').spawnSync('icacls', [outFile, '/inheritance:r', '/grant:r', `${USERDOMAIN}\\${USERNAME}:F`]);
+      if (r.status !== 0) { fs.rmSync(outFile, { force: true }); fail(`파일 권한을 설정할 수 없어 저장하지 않았습니다: ${outFile}`); }
+    }
+    fs.writeFileSync(outFile, lines.join('\n') + '\n');
     return console.log(`(${rows.length}행) → ${path.resolve(outFile)}`);
   }
   console.log(cols.join('\t'));

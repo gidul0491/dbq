@@ -50,7 +50,7 @@ dbq update                               # 새 버전으로 업데이트
 - 접속 오류(Access denied, ETIMEDOUT, 접속정보 미입력 등)는 추측으로 고치지 말고 그대로 사용자에게 알린다.
 
 ## 파일 위치
-dbq 저장소 폴더(보통 `~/git/dbq`) 하나에 전부 있다. `~/.local/bin/dbq`는 이 폴더의 스크립트를 실행하는 런처, `~/.claude/skills/dbq`는 `skill` 폴더 링크다.
+dbq 저장소 폴더(보통 `~/git/dbq`) 하나에 전부 있다. `~/.local/bin/dbq`는 이 폴더의 스크립트를 실행하는 런처(Windows는 PowerShell·cmd용 `dbq.cmd`도 있음), `~/.claude/skills/dbq`는 `skill` 폴더 링크(Windows는 junction)다.
 - `dbq`: 스크립트
 - `dbq.json`: 접속정보 (git 제외, 각자 입력)
 - `skill/SKILL.md`: 이 스킬
