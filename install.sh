@@ -57,7 +57,17 @@ case ":$PATH:" in
       echo "~/.local/bin을 PATH에 추가하세요 (PowerShell에서 실행 후 터미널·VS Code 재시작):"
       echo "  [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + \"\$HOME\\.local\\bin\", 'User')"
     else
-      echo "~/.local/bin을 PATH에 추가하세요: echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+      # 새로 여는 터미널과 Claude Code가 읽는 셸 설정 파일에 한 번만 넣는다
+      case "$(basename "${SHELL:-}")" in
+        zsh) SHELL_RC=~/.zshrc ;;
+        bash) SHELL_RC=~/.bashrc ;;
+        *) SHELL_RC=~/.profile ;;
+      esac
+      PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+      if ! grep -qsF "$PATH_LINE" "$SHELL_RC"; then
+        printf '\n%s\n' "$PATH_LINE" >> "$SHELL_RC"
+        echo "$SHELL_RC에 ~/.local/bin을 PATH로 추가했습니다. 새 터미널부터 적용됩니다."
+      fi
     fi
     ;;
 esac

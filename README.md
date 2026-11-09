@@ -11,6 +11,8 @@ git clone https://github.com/gidul0491/dbq.git ~/git/dbq
 ~/git/dbq/install.sh
 ```
 
+`~/.local/bin`이 PATH에 없으면 셸 설정 파일(zsh는 `~/.zshrc`, bash는 `~/.bashrc`)에 추가한다. 새 터미널부터 `dbq`로 실행된다.
+
 1. `~/git/dbq/dbq.json`에 본인 접속정보를 입력한다. 별칭마다 하나씩, 형식은 `dbq.example.json` 참고.
 2. `~/.claude/settings.json`의 `permissions`에 추가한다.
 
