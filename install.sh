@@ -18,11 +18,12 @@ if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.j
 fi
 
 # 본인만 읽고 쓸 수 있게 한다 (Windows는 상속 권한을 끊고 본인만 남긴다)
+# owner_only <경로> <chmod 모드> <icacls 권한>: 폴더는 안에 생길 파일까지 물려주도록 (OI)(CI)F를 준다
 owner_only() {
   if [ -n "$WIN" ]; then
-    icacls "$(cygpath -w "$1")" //inheritance:r //grant:r "$USERDOMAIN\\$USERNAME:F" >/dev/null
+    icacls "$(cygpath -w "$1")" //inheritance:r //grant:r "$USERDOMAIN\\$USERNAME:$3" >/dev/null
   else
-    chmod 600 "$1"
+    chmod "$2" "$1"
   fi
 }
 
@@ -47,7 +48,11 @@ chmod +x ~/.local/bin/dbq
 if [ ! -f "$DIR/dbq.json" ]; then
   cp "$DIR/dbq.example.json" "$DIR/dbq.json"
 fi
-owner_only "$DIR/dbq.json"
+owner_only "$DIR/dbq.json" 600 F
+# set-auth·remove 전 dbq.json 백업(backup)과 설정 변경 기록(log)
+mkdir -p "$DIR/backup" "$DIR/log"
+owner_only "$DIR/backup" 700 "(OI)(CI)F"
+owner_only "$DIR/log" 700 "(OI)(CI)F"
 
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;

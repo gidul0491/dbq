@@ -14,6 +14,8 @@ dbq <별칭> "SELECT ..." --out <파일>     # 결과를 화면 대신 파일(TS
 dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가 (접속정보는 빈칸)
+dbq show [별칭]                          # 별칭 정보를 JSON으로 (비밀번호는 있는지만)
+dbq remove <별칭>                        # 별칭 지우기 (승인)
 dbq version                              # 설치된 버전과 새 버전 확인
 dbq update                               # 새 버전으로 업데이트
 ```
@@ -31,8 +33,10 @@ dbq update                               # 새 버전으로 업데이트
 ## 설정을 직접 고치는 경우
 - 사용자가 "여기는 ○○ DB 쓰는 거야"라고 하면 `dbq` 첫 줄의 현재 프로젝트 이름으로 `dbq set <별칭> projects +<프로젝트>`를 실행한다. projects 전체를 덮어쓰는 `,` 형식은 쓰지 않는다.
 - 사용자가 DB 용도를 설명하면 `desc`를 채운다. 사용자 말이나 코드 같은 근거 없이 추측으로 채우지 않는다.
-- 사용자가 새 DB를 추가하라고 하면 `dbq new`로 양식만 만들고, 사용자에게 `dbq.json`에서 해당 별칭의 host·user·password를 채워 달라고 한다. 별칭 이름은 기존 별칭처럼 `용도-환경`(예: `db-myservice-prod`) 형태로 짓되, 애매하면 묻는다.
+- 사용자가 새 DB를 추가하라고 하면 `dbq new`로 양식만 만들고, 사용자에게 `dbq.json`에서 해당 별칭의 host·user·password를 채우거나 `dbq set-auth <별칭> < 접속정보.json`을 직접 실행해 달라고 한다. 별칭 이름은 기존 별칭처럼 `용도-환경`(예: `db-myservice-prod`) 형태로 짓되, 애매하면 묻는다.
 - host·port·user·password는 사용자만 수정한다. 이 값을 대화로 받아도 직접 넣지 말고 사용자가 파일에 넣게 한다.
+- `set-auth`·`show-secret`은 사용자가 직접 실행하는 명령이다. AI는 실행하지 않는다. `remove`는 사용자가 별칭을 지우라고 할 때만 실행한다.
+- 별칭 정보를 확인할 때는 `dbq show <별칭>`을 쓴다.
 - 고친 뒤에는 출력된 결과를 사용자에게 한 줄로 알린다.
 
 ## 조회 규칙
@@ -53,4 +57,5 @@ dbq update                               # 새 버전으로 업데이트
 dbq 저장소 폴더(보통 `~/git/dbq`) 하나에 전부 있다. `~/.local/bin/dbq`는 이 폴더의 스크립트를 실행하는 런처(Windows는 PowerShell·cmd용 `dbq.cmd`도 있음), `~/.claude/skills/dbq`는 `skill` 폴더 링크(Windows는 junction)다.
 - `dbq`: 스크립트
 - `dbq.json`: 접속정보 (git 제외, 각자 입력)
+- `backup/_dbq_json/`: `set-auth`·`remove` 전 dbq.json 백업, `log/`: 설정을 바꾼 기록 (git 제외)
 - `skill/SKILL.md`: 이 스킬

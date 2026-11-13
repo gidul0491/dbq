@@ -2,201 +2,104 @@
 // 조회 전용 DB 쿼리: dbq <별칭> "<SQL>"
 // 접속정보·드라이버는 이 스크립트가 있는 폴더 기준 (dbq.json, node_modules)
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync, execSync } = require('child_process');
 
 const DIR = path.dirname(fs.realpathSync(__filename));
 const LIB = path.join(DIR, 'node_modules');
+const FILE = path.join(DIR, 'dbq.json');
+// set-auth·remove 전에 dbq.json을 여기에 백업하고, 바꾼 항목 이름(값은 빼고)은 log/<별칭>.log에 남긴다
+const CONFIG_BACKUP_DIR = path.join(DIR, 'backup', '_dbq_json');
+const LOG_DIR = path.join(DIR, 'log');
 const MAX_ROWS = 500;
+const EDITABLE = ['type', 'database', 'projects', 'desc'];
+const PORTS = { mysql: 3306, postgres: 5432, mssql: 1433 }; // 등록 가능한 종류
+const SUPPORTED = ['mysql', 'postgres', 'mssql']; // 조회 가능한 종류
+// 첫 인자가 이 이름이면 조회가 아니라 명령으로 보므로 별칭으로 쓸 수 없다
+const COMMANDS = ['version', 'update', 'set', 'new', 'show', 'show-secret', 'set-auth', 'remove'];
+// 접속정보는 대화·명령줄에 남지 않도록 set-auth의 표준 입력(JSON)으로만 받는다
+const AUTH_FIELDS = ['host', 'port', 'user', 'password'];
+// AI가 사용자 몰래 접속정보를 바꾸거나 비밀번호를 보거나 별칭을 지우지 않도록, 이 명령들은 Claude Code 설정에
+// 그 명령의 ask(승인 받고 실행) 또는 deny(실행 금지) 규칙이 있어야 실행한다. 사람이나 봇 프로그램이 직접 실행하는 것은 막지 않는다
+const guardRulesFor = (command) => (process.platform === 'win32'
+  ? [`Bash(dbq ${command} *)`, `PowerShell(dbq ${command} *)`]
+  : [`Bash(dbq ${command} *)`]);
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
 
 const fail = (msg) => { console.error(msg); process.exit(1); };
 if (Number(process.versions.node.split('.')[0]) < 22) fail(`Node 22 이상이 필요합니다. (현재: ${process.version})`);
 
-// dbq version: 설치된 버전과 새 버전 확인 / dbq update: 새 버전으로 업데이트 (dbq 저장소의 git 기준)
-if (process.argv[2] === 'version' || process.argv[2] === 'update') {
-  const { spawnSync } = require('child_process');
-  const git = (...args) => {
-    const r = spawnSync('git', ['-C', DIR, ...args], { encoding: 'utf8' });
-    return { ok: r.status === 0, out: (r.stdout || '').trimEnd(), err: (r.stderr || '').trim() };
-  };
-  const f = git('fetch', '-q', 'origin');
-  if (!f.ok) fail(`새 버전을 확인할 수 없습니다: ${f.err}`);
-  const head = () => git('log', '-1', '--format=%h %cd %s', '--date=format:%Y-%m-%d').out;
-  const cur = head();
-  const [ahead, behind] = git('rev-list', '--left-right', '--count', 'HEAD...@{u}').out.split(/\s+/).map(Number);
-  const dirty = git('status', '--porcelain', '--untracked-files=no').out;
-  const news = behind ? git('log', '--format=  %h %s', 'HEAD..@{u}').out : '';
-  if (process.argv[2] === 'version') {
-    console.log(`설치된 버전: ${cur}`);
-    console.log(behind ? `새 버전 ${behind}개 (dbq update로 업데이트):\n${news}` : '최신 버전입니다.');
-    if (ahead) console.log(`올리지 않은 로컬 커밋 ${ahead}개`);
-    if (dirty) console.log(`로컬에서 고친 파일:\n${dirty}`);
-    process.exit(0);
-  }
-  if (!behind) { console.log(`최신 버전입니다: ${cur}`); process.exit(0); }
-  if (dirty) fail(`로컬에서 고친 파일이 있어 업데이트를 멈춥니다:\n${dirty}`);
-  if (ahead) fail(`올리지 않은 로컬 커밋 ${ahead}개가 있어 업데이트를 멈춥니다.`);
-  const m = git('merge', '--ff-only', '@{u}');
-  if (!m.ok) fail(`업데이트 실패: ${m.err}`);
-  // 지금 실행 중인 node로 다시 설치해 런처의 node가 바뀌지 않게 한다
-  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}` };
-  // Windows는 .sh를 바로 실행할 수 없어 Git Bash로 실행한다 (PATH의 bash는 WSL일 수 있어 git 설치 폴더의 것을 쓴다)
-  let cmd = [path.join(DIR, 'install.sh')];
-  if (process.platform === 'win32') {
-    const bash = path.resolve(git('--exec-path').out, '../../../bin/bash.exe');
-    if (!fs.existsSync(bash)) fail(`Git Bash를 찾을 수 없습니다: ${bash}`);
-    cmd = [bash, ...cmd];
-  }
-  const i = spawnSync(cmd[0], cmd.slice(1), { cwd: DIR, env, encoding: 'utf8' });
-  if (i.status !== 0) fail(`설치 실패:\n${i.stdout}${i.stderr}`);
-  console.log(`업데이트 완료: ${cur} → ${head()}\n${news}`);
-  process.exit(0);
-}
-
-const FILE = path.join(DIR, 'dbq.json');
-const EDITABLE = ['type', 'database', 'projects', 'desc'];
-const PORTS = { mysql: 3306, postgres: 5432, mssql: 1433 }; // 등록 가능한 종류
-const SUPPORTED = ['mysql', 'postgres', 'mssql']; // 조회 가능한 종류
 // --out <파일>: 결과를 화면 대신 파일(TSV, 행 수 제한 없음)로 저장한다
 const args = process.argv.slice(2);
-const oi = args.indexOf('--out');
-const outFile = oi >= 0 ? args.splice(oi, 2)[1] : '';
-if (oi >= 0 && !outFile) fail('사용법: dbq <별칭> "<SQL>" --out <파일>');
-const [alias, raw] = args;
-const isCmd = alias === 'set' || alias === 'new';
-if (alias && !isCmd && !raw) fail('사용법: dbq <별칭> "<SQL>" [--out <파일>]');
+const outIndex = args.indexOf('--out');
+const outFile = outIndex >= 0 ? args.splice(outIndex, 2)[1] : '';
+if (outIndex >= 0 && !outFile) fail('사용법: dbq <별칭> "<SQL>" --out <파일>');
+
+let all; // dbq.json 내용 (별칭 → 설정)
+main();
+
+function main() {
+  const [command, ...commandArgs] = args;
+  if (command === 'version' || command === 'update') return cmdVersion(command);
+  all = readConfig();
+  switch (command) {
+    case undefined: return cmdList();
+    case 'new': return cmdNew(...commandArgs);
+    case 'set': return cmdSet(...commandArgs);
+    case 'show': return cmdShow(...commandArgs);
+    case 'show-secret': return cmdShowSecret(...commandArgs);
+    case 'set-auth': return cmdSetAuth(...commandArgs);
+    case 'remove': return cmdRemove(...commandArgs);
+    default: return cmdQuery(command, commandArgs[0]).catch((e) => fail(e.message || e.code || String(e)));
+  }
+}
+
+// ---------- 조회 ----------
+async function cmdQuery(alias, rawSql) {
+  if (!rawSql) fail('사용법: dbq <별칭> "<SQL>" [--out <파일>]');
+  const sql = rawSql.trim().replace(/;\s*$/, '');
+  rejectNonReadSql(sql);
+  const { type = 'mysql', desc, projects, ...conn } = findAlias(alias);
+  if (!SUPPORTED.includes(type)) fail(`지원하지 않는 종류: ${type}`);
+  if (type === 'mssql') rejectMssqlWrites(sql);
+  if (!conn.host || !conn.user) fail(`접속정보 미입력: ${alias} (${FILE})`);
+  const runByType = { mysql: runMysql, postgres: runPostgres, mssql: runMssql };
+  await runByType[type](conn, sql);
+}
 
 // 한 문장, 조회 키워드로 시작하는 것만 허용
-const sql = (raw || '').trim().replace(/;\s*$/, '');
-if (alias && !isCmd) {
+function rejectNonReadSql(sql) {
   if (sql.includes(';')) fail('한 번에 한 문장만 실행할 수 있습니다.');
   const head = sql.replace(/^(\s+|\/\*[\s\S]*?\*\/|--[^\n]*\n?)*/, '');
   if (!/^(select|show|desc|describe|explain|with)\b/i.test(head)) fail('조회 쿼리만 실행할 수 있습니다.');
   if (/\binto\s+(outfile|dumpfile)\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
 }
 
-let all;
-try {
-  all = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-} catch (e) {
-  fail(`dbq.json 오류: ${e.message}`);
-}
-
-// dbq set <별칭> <항목> <값>: 접속정보 외 항목만 수정 (빈 값이면 삭제, projects는 쉼표 구분 / +저장소 추가 / -저장소 제거)
-// dbq new <별칭> <종류> [database] [설명]: 접속정보가 빈 양식 추가
-if (isCmd) {
-  const [cmd, name, a, b, c] = process.argv.slice(2);
-  if (cmd === 'new') {
-    if (!name || !a) fail(`사용법: dbq new <별칭> <${Object.keys(PORTS).join('|')}> [database] [설명]`);
-    if (all[name]) fail(`이미 있는 별칭: ${name}`);
-    if (!PORTS[a]) fail(`알 수 없는 종류: ${a} (가능: ${Object.keys(PORTS).join(', ')})`);
-    all[name] = { type: a, host: '', port: PORTS[a], user: '', password: '', database: b || '' };
-    if (c) all[name].desc = c;
-  } else {
-    if (!name || !a || b === undefined) fail(`사용법: dbq set <별칭> <${EDITABLE.join('|')}> <값>`);
-    if (!all[name]) fail(`별칭 없음: ${name} (있는 별칭: ${Object.keys(all).join(', ')})`);
-    if (!EDITABLE.includes(a)) fail(`수정할 수 없는 항목: ${a} (가능: ${EDITABLE.join(', ')})`);
-    if (a === 'type' && !PORTS[b]) fail(`알 수 없는 종류: ${b} (가능: ${Object.keys(PORTS).join(', ')})`);
-    const cur = all[name].projects || [];
-    let v = b;
-    if (a === 'projects') {
-      if (/^[+-]/.test(b)) {
-        const repo = b.slice(1).trim();
-        v = b[0] === '+' ? [...new Set([...cur, repo])] : cur.filter((p) => p !== repo);
-      } else {
-        v = b.split(',').map((s) => s.trim()).filter(Boolean);
-      }
-    }
-    if (v === '' || (Array.isArray(v) && !v.length)) delete all[name][a];
-    else all[name][a] = v;
-  }
-  fs.writeFileSync(FILE, JSON.stringify(all, null, 2) + '\n');
-  const { host, port, user, password, ...shown } = all[name];
-  console.log(`${name} = ${JSON.stringify(shown)}${host && user && password ? '' : ' (접속정보 미입력)'}`);
-  process.exit(0);
-}
-
-// 인자 없이 실행하면 별칭 목록 (비밀번호 제외), 현재 프로젝트를 쓰는 별칭에 * 표시
-// 프로젝트 이름: git origin 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름
-if (!alias) {
-  const git = (cmd) => {
-    try {
-      return require('child_process').execSync(`git ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    } catch (e) {
-      return '';
-    }
-  };
-  const url = git('remote get-url origin');
-  const repo = url ? url.replace(/\.git$/, '').split(/[/:]/).pop() : path.basename(git('rev-parse --show-toplevel') || process.cwd());
-  console.log(`현재 프로젝트: ${repo}`);
-  console.log(['', '별칭', '종류', 'host', 'database', '프로젝트', '설명'].join('\t'));
-  for (const [k, c] of Object.entries(all)) {
-    const mark = repo && (c.projects || []).includes(repo) ? '*' : '';
-    console.log([mark, k, c.type || 'mysql', c.host, c.database, (c.projects || []).join(','), c.desc].map((v) => (v == null ? '' : v)).join('\t'));
-  }
-  process.exit(0);
-}
-if (!all[alias]) fail(`별칭 없음: ${alias} (있는 별칭: ${Object.keys(all).join(', ')})`);
-const { type = 'mysql', desc, projects, ...conn } = all[alias];
-if (!SUPPORTED.includes(type)) fail(`지원하지 않는 종류: ${type}`);
-// mssql은 SELECT ... INTO로 테이블이 생기고, 읽기 전용 트랜잭션이 없어 롤백에만 의존하므로 INTO 자체를 막는다
-if (type === 'mssql' && /\binto\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
-// mssql은 롤백에만 기대지 않도록 동적 실행·외부 서버 호출·WITH 안의 쓰기를 미리 막는다 (문자열·주석·[이름]은 지우고 검사)
-if (type === 'mssql') {
+// mssql은 읽기 전용 트랜잭션이 없어 롤백에만 의존하므로, SELECT ... INTO(테이블 생성)·동적 실행·외부 서버 호출·WITH 안의 쓰기를 미리 막는다
+// (문자열·주석·[이름]은 지우고 검사)
+function rejectMssqlWrites(sql) {
+  if (/\binto\b/i.test(sql)) fail('조회 쿼리만 실행할 수 있습니다.');
   const bare = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ').replace(/'(?:[^']|'')*'/g, "''").replace(/\[[^\]]*\]/g, '[]');
   if (/\b(exec|execute|sp_executesql|xp_cmdshell)\b/i.test(bare)) fail('조회 쿼리만 실행할 수 있습니다. (EXEC 등 실행 명령)');
   if (/\b(openquery|openrowset|opendatasource)\s*\(/i.test(bare)) fail('조회 쿼리만 실행할 수 있습니다. (외부 서버 호출)');
   if (/^\s*with\b/i.test(bare) && /\b(insert|update|delete|merge|drop|alter|create|truncate|grant|revoke)\b/i.test(bare)) fail('조회 쿼리만 실행할 수 있습니다. (WITH 안의 쓰기)');
 }
-if (!conn.host || !conn.user) fail(`접속정보 미입력: ${alias} (${FILE})`);
 
-// 글자 칼럼이 바이트로 오는 DB(문자셋이 binary로 보고되는 경우)는 UTF-8 글자면 글자로, 아니면 크기만 보인다
-const utf8 = new TextDecoder('utf-8', { fatal: true });
-const cell = (v) => {
-  if (v === null || v === undefined) return 'NULL';
-  if (Buffer.isBuffer(v)) {
-    let s;
-    try { s = utf8.decode(v); } catch (e) { return `<${v.length} bytes>`; }
-    if (/[\x00-\x08\x0e-\x1f]/.test(s)) return `<${v.length} bytes>`;
-    v = s;
-  }
-  if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.000Z$|Z$/, '');
-  if (typeof v === 'object') v = JSON.stringify(v);
-  return String(v).replace(/\t/g, ' ').replace(/\r?\n/g, '\\n');
-};
-
-const print = (cols, rows) => {
-  if (outFile) {
-    const lines = [cols.join('\t'), ...rows.map((r) => cols.map((c) => cell(r[c])).join('\t'))];
-    // Windows는 mode가 무시되므로 빈 파일을 만들어 본인만 읽게 한 뒤에 값을 쓴다
-    fs.writeFileSync(outFile, '');
-    if (process.platform !== 'win32') fs.chmodSync(outFile, 0o600);
-    else {
-      const { USERDOMAIN, USERNAME } = process.env;
-      const r = require('child_process').spawnSync('icacls', [outFile, '/inheritance:r', '/grant:r', `${USERDOMAIN}\\${USERNAME}:F`]);
-      if (r.status !== 0) { fs.rmSync(outFile, { force: true }); fail(`파일 권한을 설정할 수 없어 저장하지 않았습니다: ${outFile}`); }
-    }
-    fs.writeFileSync(outFile, lines.join('\n') + '\n');
-    return console.log(`(${rows.length}행) → ${path.resolve(outFile)}`);
-  }
-  console.log(cols.join('\t'));
-  for (const r of rows.slice(0, MAX_ROWS)) console.log(cols.map((c) => cell(r[c])).join('\t'));
-  console.log(rows.length > MAX_ROWS ? `(${rows.length}행 중 ${MAX_ROWS}행 표시)` : `(${rows.length}행)`);
-};
-
-async function runMysql() {
+async function runMysql(conn, sql) {
   const mysql = require(path.join(LIB, 'mysql2/promise'));
   const db = await mysql.createConnection({ ...conn, multipleStatements: false, dateStrings: true });
   try {
     await db.query('START TRANSACTION READ ONLY');
     const [rows, fields] = await db.query(sql);
     await db.query('ROLLBACK');
-    print((fields || []).map((f) => f.name), Array.isArray(rows) ? rows : []);
+    printRows((fields || []).map((f) => f.name), Array.isArray(rows) ? rows : []);
   } finally {
     await db.end();
   }
 }
 
-async function runPostgres() {
+async function runPostgres(conn, sql) {
   const pg = require(path.join(LIB, 'pg'));
   for (const oid of [1082, 1114, 1184]) pg.types.setTypeParser(oid, (v) => v);
   const db = new pg.Client(conn);
@@ -205,19 +108,19 @@ async function runPostgres() {
     await db.query('BEGIN READ ONLY');
     const r = await db.query(sql);
     await db.query('ROLLBACK');
-    print(r.fields.map((f) => f.name), r.rows);
+    printRows(r.fields.map((f) => f.name), r.rows);
   } finally {
     await db.end();
   }
 }
 
-async function runMssql() {
+async function runMssql(conn, sql) {
   const mssql = require(path.join(LIB, 'mssql'));
   const { host, port, options, ...rest } = conn;
   const db = await mssql.connect({
     ...rest,
     server: host,
-    port: Number(port) || 1433,
+    port: Number(port) || PORTS.mssql,
     options: { encrypt: false, trustServerCertificate: true, ...options },
   });
   try {
@@ -226,7 +129,7 @@ async function runMssql() {
     try {
       const r = await new mssql.Request(tx).query(sql);
       const rows = r.recordset || [];
-      print(Object.keys(rows.columns || rows[0] || {}), rows);
+      printRows(Object.keys(rows.columns || rows[0] || {}), rows);
     } finally {
       await tx.rollback();
     }
@@ -235,5 +138,286 @@ async function runMssql() {
   }
 }
 
-const RUN = { mysql: runMysql, postgres: runPostgres, mssql: runMssql };
-RUN[type]().catch((e) => fail(e.message || e.code || String(e)));
+function printRows(cols, rows) {
+  if (outFile) {
+    const lines = [cols.join('\t'), ...rows.map((r) => cols.map((c) => cell(r[c])).join('\t'))];
+    writeOwnerOnly(outFile, lines.join('\n') + '\n');
+    return console.log(`(${rows.length}행) → ${path.resolve(outFile)}`);
+  }
+  console.log(cols.join('\t'));
+  for (const r of rows.slice(0, MAX_ROWS)) console.log(cols.map((c) => cell(r[c])).join('\t'));
+  console.log(rows.length > MAX_ROWS ? `(${rows.length}행 중 ${MAX_ROWS}행 표시)` : `(${rows.length}행)`);
+}
+
+// 글자 칼럼이 바이트로 오는 DB(문자셋이 binary로 보고되는 경우)는 UTF-8 글자면 글자로, 아니면 크기만 보인다
+function cell(v) {
+  if (v === null || v === undefined) return 'NULL';
+  if (Buffer.isBuffer(v)) {
+    let s;
+    try { s = UTF8.decode(v); } catch (e) { return `<${v.length} bytes>`; }
+    if (/[\x00-\x08\x0e-\x1f]/.test(s)) return `<${v.length} bytes>`;
+    v = s;
+  }
+  if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.000Z$|Z$/, '');
+  if (typeof v === 'object') v = JSON.stringify(v);
+  return String(v).replace(/\t/g, ' ').replace(/\r?\n/g, '\\n');
+}
+
+// Windows는 mode가 무시되므로 빈 파일을 만들어 본인만 읽게 한 뒤에 값을 쓴다
+function writeOwnerOnly(file, content) {
+  fs.writeFileSync(file, '');
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
+  else {
+    const { USERDOMAIN, USERNAME } = process.env;
+    const r = spawnSync('icacls', [file, '/inheritance:r', '/grant:r', `${USERDOMAIN}\\${USERNAME}:F`]);
+    if (r.status !== 0) { fs.rmSync(file, { force: true }); fail(`파일 권한을 설정할 수 없어 저장하지 않았습니다: ${file}`); }
+  }
+  fs.writeFileSync(file, content);
+}
+
+// ---------- 별칭 목록 ----------
+// 비밀번호 제외, 현재 프로젝트를 쓰는 별칭에 * 표시. 프로그램이 읽을 값은 dbq show(JSON)로 준다
+function cmdList() {
+  const projectName = currentProjectName();
+  console.log(`현재 프로젝트: ${projectName}`);
+  const aliasRows = Object.entries(all).map(([name, dbConfig]) => ({
+    mark: (dbConfig.projects || []).includes(projectName) ? '*' : '',
+    alias: name,
+    type: dbConfig.type || 'mysql',
+    host: dbConfig.host,
+    database: dbConfig.database,
+    projects: (dbConfig.projects || []).join(','),
+    desc: dbConfig.desc,
+  }));
+  printAliasBlocks(aliasRows);
+}
+
+// 프로젝트 이름: git origin 저장소 이름 → git 최상위 폴더 이름 → 현재 폴더 이름
+function currentProjectName() {
+  const git = (cmd) => {
+    try {
+      return execSync(`git ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch (e) {
+      return '';
+    }
+  };
+  const url = git('remote get-url origin');
+  return url ? url.replace(/\.git$/, '').split(/[/:]/).pop() : path.basename(git('rev-parse --show-toplevel') || process.cwd());
+}
+
+// 별칭 아래에 항목을 한 줄에 하나씩, 빈 항목은 뺀다
+function printAliasBlocks(aliasRows) {
+  const blockFields = ['host', 'database', 'projects', 'desc'];
+  for (const row of aliasRows) {
+    console.log(`\n${row.mark || ' '} ${row.alias}  ${row.type}`);
+    for (const field of blockFields.filter((blockField) => row[blockField])) console.log(`    - ${field}: ${row[field]}`);
+  }
+}
+// ---------- 설정 (new·set·show·show-secret·set-auth·remove) ----------
+// 접속정보가 빈 양식 추가
+function cmdNew(name, type, database, desc) {
+  if (!name || !type) fail(`사용법: dbq new <별칭> <${Object.keys(PORTS).join('|')}> [database] [설명]`);
+  if (all[name]) fail(`이미 있는 별칭: ${name}`);
+  if (COMMANDS.includes(name)) fail(`별칭으로 쓸 수 없는 이름: ${name}`);
+  if (!PORTS[type]) fail(`알 수 없는 종류: ${type} (가능: ${Object.keys(PORTS).join(', ')})`);
+  all[name] = { type, host: '', port: PORTS[type], user: '', password: '', database: database || '' };
+  if (desc) all[name].desc = desc;
+  saveConfig();
+  printSaved(name);
+}
+
+// 접속정보 외 항목만 수정 (빈 값이면 삭제, projects는 쉼표 구분 / +프로젝트 추가 / -프로젝트 제거)
+function cmdSet(name, field, value) {
+  if (!name || !field || value === undefined) fail(`사용법: dbq set <별칭> <${EDITABLE.join('|')}> <값>`);
+  const dbConfig = findAlias(name);
+  if (!EDITABLE.includes(field)) fail(`수정할 수 없는 항목: ${field} (가능: ${EDITABLE.join(', ')})`);
+  if (field === 'type' && !PORTS[value]) fail(`알 수 없는 종류: ${value} (가능: ${Object.keys(PORTS).join(', ')})`);
+  const newValue = field === 'projects' ? nextProjects(dbConfig.projects || [], value) : value;
+  if (newValue === '' || (Array.isArray(newValue) && !newValue.length)) delete dbConfig[field];
+  else dbConfig[field] = newValue;
+  saveConfig();
+  printSaved(name);
+}
+
+// 별칭 하나 또는 전체를 JSON으로 보여준다. 비밀번호는 있는지만 보여준다
+function cmdShow(name) {
+  if (name) findAlias(name);
+  const shownDbs = name ? publicDbInfo(name) : Object.keys(all).map(publicDbInfo);
+  console.log(JSON.stringify(shownDbs, null, 2));
+}
+
+// 사용자 본인에게만 보이는 터미널·화면에서 쓴다. AI가 비밀번호를 읽지 못하도록 deny 규칙을 두는 것이 맞다
+function cmdShowSecret(name) {
+  requireGuardRules('show-secret');
+  if (!name) fail('사용법: dbq show-secret <별칭>');
+  const { password = '' } = findAlias(name);
+  console.log(JSON.stringify({ ...publicDbInfo(name), password }, null, 2));
+}
+
+// 표준 입력의 JSON에서 들어온 항목만 바꾼다. password는 빈 문자열이면 그대로 두고 null이면 지운다
+function cmdSetAuth(name) {
+  requireGuardRules('set-auth');
+  if (!name) fail('사용법: dbq set-auth <별칭> < 접속정보.json');
+  const dbConfig = findAlias(name);
+  const changedFields = applyAuthInput(dbConfig, readAuthInput());
+  if (!changedFields.length) return console.log(`바뀐 항목 없음: ${name}`);
+  backupConfigFile();
+  saveConfig();
+  logAct(name, 'set-auth', changedFields.join(','));
+  console.log(`${name} 접속정보 바꿈: ${changedFields.join(', ')}`);
+  console.log(JSON.stringify(publicDbInfo(name), null, 2));
+}
+
+function cmdRemove(name) {
+  requireGuardRules('remove');
+  if (!name) fail('사용법: dbq remove <별칭>');
+  findAlias(name);
+  const backupFile = backupConfigFile();
+  delete all[name];
+  saveConfig();
+  logAct(name, 'remove', `dbq.json 백업 ${backupFile}`);
+  console.log(`별칭 지움: ${name}\n지우기 전 dbq.json: ${backupFile}`);
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  } catch (e) {
+    fail(`dbq.json 오류: ${e.message}`);
+  }
+}
+
+function saveConfig() {
+  fs.writeFileSync(FILE, JSON.stringify(all, null, 2) + '\n', { mode: 0o600 });
+}
+
+function findAlias(name) {
+  if (!all[name]) fail(`별칭 없음: ${name} (있는 별칭: ${Object.keys(all).join(', ')})`);
+  return all[name];
+}
+
+function nextProjects(currentProjects, value) {
+  if (!/^[+-]/.test(value)) return value.split(',').map((s) => s.trim()).filter(Boolean);
+  const project = value.slice(1).trim();
+  return value[0] === '+' ? [...new Set([...currentProjects, project])] : currentProjects.filter((p) => p !== project);
+}
+
+function printSaved(name) {
+  const shownDb = publicDbInfo(name);
+  console.log(`${name} = ${JSON.stringify(shownDb)}${shownDb.host && shownDb.user && shownDb.hasPassword ? '' : ' (접속정보 미입력)'}`);
+}
+
+function publicDbInfo(name) {
+  const dbConfig = all[name];
+  const type = dbConfig.type || 'mysql';
+  return {
+    alias: name,
+    type,
+    host: dbConfig.host,
+    port: Number(dbConfig.port) || PORTS[type],
+    user: dbConfig.user,
+    hasPassword: Boolean(dbConfig.password),
+    database: dbConfig.database,
+    projects: dbConfig.projects,
+    desc: dbConfig.desc,
+  };
+}
+
+function requireGuardRules(command) {
+  let claudePermissions = {};
+  try {
+    claudePermissions = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8')).permissions || {};
+  } catch (e) {
+    // 설정 파일이 없으면 아래에서 규칙이 없는 것으로 거부한다
+  }
+  const guardedRules = [...(claudePermissions.ask || []), ...(claudePermissions.deny || [])];
+  const missingRules = guardRulesFor(command).filter((rule) => !guardedRules.includes(rule));
+  if (missingRules.length) fail(`먼저 ~/.claude/settings.json의 permissions.ask 또는 permissions.deny에 추가하세요: ${missingRules.join(', ')}`);
+}
+
+function readAuthInput() {
+  let authInput;
+  try {
+    authInput = JSON.parse(fs.readFileSync(0, 'utf8'));
+  } catch (e) {
+    fail(`표준 입력에 접속정보 JSON을 넣으세요. 예: {"host":"1.2.3.4","port":3306,"user":"reader","password":"..."} (${e.message})`);
+  }
+  if (!authInput || typeof authInput !== 'object' || Array.isArray(authInput)) fail('접속정보는 JSON 객체여야 합니다.');
+  const unknownFields = Object.keys(authInput).filter((field) => !AUTH_FIELDS.includes(field));
+  if (unknownFields.length) fail(`넣을 수 없는 항목: ${unknownFields.join(', ')} (가능: ${AUTH_FIELDS.join(', ')})`);
+  return authInput;
+}
+
+// 바뀐 항목 이름 목록을 돌려준다
+function applyAuthInput(dbConfig, authInput) {
+  const changedFields = [];
+  for (const [field, inputValue] of Object.entries(authInput)) {
+    const keepPassword = field === 'password' && inputValue === '';
+    const newValue = field === 'port' ? Number(inputValue) || PORTS[dbConfig.type || 'mysql'] : inputValue ?? '';
+    if (keepPassword || dbConfig[field] === newValue) continue;
+    dbConfig[field] = newValue;
+    changedFields.push(field);
+  }
+  return changedFields;
+}
+
+function backupConfigFile() {
+  fs.mkdirSync(CONFIG_BACKUP_DIR, { recursive: true, mode: 0o700 });
+  const backupFile = path.join(CONFIG_BACKUP_DIR, `dbq.json.bak_${timestamp()}`);
+  fs.copyFileSync(FILE, backupFile);
+  fs.chmodSync(backupFile, 0o600);
+  return backupFile;
+}
+
+// 설정을 바꾼 작업을 log/<별칭>.log에 남긴다 (시각, 작업, 내용)
+function logAct(name, act, detail) {
+  fs.mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
+  const now = new Date().toLocaleString('sv-SE');
+  fs.appendFileSync(path.join(LOG_DIR, `${name}.log`), `${now}\t${act}\t${detail}\n`, { mode: 0o600 });
+}
+
+function timestamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+// ---------- 버전 ----------
+// version: 설치된 버전과 새 버전 확인 / update: 새 버전으로 업데이트 (dbq 저장소의 git 기준)
+function cmdVersion(command) {
+  const git = (...gitArgs) => {
+    const r = spawnSync('git', ['-C', DIR, ...gitArgs], { encoding: 'utf8' });
+    return { ok: r.status === 0, out: (r.stdout || '').trimEnd(), err: (r.stderr || '').trim() };
+  };
+  const fetched = git('fetch', '-q', 'origin');
+  if (!fetched.ok) fail(`새 버전을 확인할 수 없습니다: ${fetched.err}`);
+  const head = () => git('log', '-1', '--format=%h %cd %s', '--date=format:%Y-%m-%d').out;
+  const cur = head();
+  const [ahead, behind] = git('rev-list', '--left-right', '--count', 'HEAD...@{u}').out.split(/\s+/).map(Number);
+  const dirty = git('status', '--porcelain', '--untracked-files=no').out;
+  const news = behind ? git('log', '--format=  %h %s', 'HEAD..@{u}').out : '';
+  if (command === 'version') {
+    console.log(`설치된 버전: ${cur}`);
+    console.log(behind ? `새 버전 ${behind}개 (dbq update로 업데이트):\n${news}` : '최신 버전입니다.');
+    if (ahead) console.log(`올리지 않은 로컬 커밋 ${ahead}개`);
+    if (dirty) console.log(`로컬에서 고친 파일:\n${dirty}`);
+    return;
+  }
+  if (!behind) return console.log(`최신 버전입니다: ${cur}`);
+  if (dirty) fail(`로컬에서 고친 파일이 있어 업데이트를 멈춥니다:\n${dirty}`);
+  if (ahead) fail(`올리지 않은 로컬 커밋 ${ahead}개가 있어 업데이트를 멈춥니다.`);
+  const merged = git('merge', '--ff-only', '@{u}');
+  if (!merged.ok) fail(`업데이트 실패: ${merged.err}`);
+  // 지금 실행 중인 node로 다시 설치해 런처의 node가 바뀌지 않게 한다
+  const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}` };
+  // Windows는 .sh를 바로 실행할 수 없어 Git Bash로 실행한다 (PATH의 bash는 WSL일 수 있어 git 설치 폴더의 것을 쓴다)
+  let installCmd = [path.join(DIR, 'install.sh')];
+  if (process.platform === 'win32') {
+    const bash = path.resolve(git('--exec-path').out, '../../../bin/bash.exe');
+    if (!fs.existsSync(bash)) fail(`Git Bash를 찾을 수 없습니다: ${bash}`);
+    installCmd = [bash, ...installCmd];
+  }
+  const installed = spawnSync(installCmd[0], installCmd.slice(1), { cwd: DIR, env, encoding: 'utf8' });
+  if (installed.status !== 0) fail(`설치 실패:\n${installed.stdout}${installed.stderr}`);
+  console.log(`업데이트 완료: ${cur} → ${head()}\n${news}`);
+}
