@@ -228,7 +228,7 @@ function cmdNew(name, type, database, desc) {
 
 // 접속정보 외 항목만 수정 (빈 값이면 삭제, projects는 쉼표 구분 / +프로젝트 추가 / -프로젝트 제거)
 function cmdSet(name, field, value) {
-  if (!name || !field || value === undefined) fail(`사용법: dbq set <별칭> <${EDITABLE.join('|')}> <값>`);
+  if (!name || !field || value === undefined) fail(`사용법: dbq set <별칭> <${EDITABLE.join('|')}> <값>\n  projects: +<프로젝트> 추가, -<프로젝트> 제거, <a,b> 목록 전체를 바꿈`);
   const dbConfig = findAlias(name);
   if (!EDITABLE.includes(field)) fail(`수정할 수 없는 항목: ${field} (가능: ${EDITABLE.join(', ')})`);
   if (field === 'type' && !PORTS[value]) fail(`알 수 없는 종류: ${value} (가능: ${Object.keys(PORTS).join(', ')})`);

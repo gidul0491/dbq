@@ -51,6 +51,7 @@ dbq                                      # 별칭 목록 (현재 프로젝트를
 dbq <별칭> "SELECT ..."                  # 조회
 dbq <별칭> "SELECT ..." --out <파일>     # 결과를 화면 대신 파일(TSV)로 저장, 행 수 제한 없음
 dbq set <별칭> projects +<프로젝트>      # 이 별칭을 쓰는 프로젝트 추가 (-<프로젝트>는 제거)
+dbq set <별칭> projects <a,b>            # 프로젝트 목록 전체를 바꿈 (+ 없이 하나만 쓰면 그 하나만 남음)
 dbq set <별칭> <type|database|desc> <값> # 수정, 빈 값("")이면 삭제
 dbq new <별칭> <mysql|postgres|mssql> [database] [설명]  # 새 DB 양식 추가
 dbq show [별칭]                          # 별칭 정보를 JSON으로 (비밀번호는 있는지만)
